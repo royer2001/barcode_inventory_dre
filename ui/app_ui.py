@@ -185,11 +185,96 @@ class AutoCompleteEntry(tk.Frame):
         return self.var.get()
 
 
+class MultiOfficeSelector(tk.Toplevel):
+    def __init__(self, parent, offices, callback):
+        super().__init__(parent)
+        self.title("Seleccionar Oficinas")
+        self.geometry("500x600")
+        self.callback = callback
+        self.offices = offices
+        self.vars = []
+        
+        # Frame principal
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Botones de control
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Button(btn_frame, text="Seleccionar Todo", command=self.select_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Deseleccionar Todo", command=self.deselect_all).pack(side=tk.LEFT, padx=5)
+        
+        # Canvas y Scrollbar para la lista
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        self.scrollable_frame = ttk.Frame(canvas)
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        # Guardar referencia a la ventana del canvas para ajustar ancho
+        self.canvas_window = canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Ajustar ancho del frame interno al cambiar tamaño del canvas
+        def on_canvas_configure(event):
+            canvas.itemconfig(self.canvas_window, width=event.width)
+        
+        canvas.bind("<Configure>", on_canvas_configure)
+
+        # Scroll con rueda del mouse
+        def _on_mousewheel(event):
+            if event.num == 4:  # Linux scroll up
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:  # Linux scroll down
+                canvas.yview_scroll(1, "units")
+            else:  # Windows/Mac
+                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        # Vincular eventos de scroll a la ventana y al canvas
+        self.bind("<Button-4>", _on_mousewheel)
+        self.bind("<Button-5>", _on_mousewheel)
+        self.bind("<MouseWheel>", _on_mousewheel)
+        
+        # Checkboxes
+        for office in self.offices:
+            var = tk.BooleanVar()
+            chk = ttk.Checkbutton(self.scrollable_frame, text=office, variable=var)
+            chk.pack(anchor="w", padx=5, pady=2)
+            self.vars.append((office, var))
+            
+        # Botón Generar
+        ttk.Button(self, text="Generar PDF", command=self.on_generate).pack(pady=10)
+        
+    def select_all(self):
+        for _, var in self.vars:
+            var.set(True)
+            
+    def deselect_all(self):
+        for _, var in self.vars:
+            var.set(False)
+            
+    def on_generate(self):
+        selected = [office for office, var in self.vars if var.get()]
+        if not selected:
+            messagebox.showwarning("Atención", "Selecciona al menos una oficina.")
+            return
+        self.callback(selected)
+        self.destroy()
+
+
 class InventoryApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Gestión de Inventario - Códigos de Barra")
-        self.geometry("950x550")
+        self.geometry("950x600")
         self.configure(bg="#f8f9fa")
 
         # Inicializar all_offices ANTES de crear widgets
@@ -253,10 +338,15 @@ class InventoryApp(tk.Tk):
 
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        ttk.Button(self, text="Generar Código de Barras",
-                   command=self.generate_selected_barcode).pack(pady=5)
-        ttk.Button(self, text="Generar PDF con Etiquetas",
-                   command=self.generate_all_barcodes_pdf).pack(pady=5)
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(pady=5)
+
+        ttk.Button(btn_frame, text="Generar Código de Barras (Seleccionado)",
+                   command=self.generate_selected_barcode).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Generar PDF (Filtro Actual)",
+                   command=self.generate_all_barcodes_pdf).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Generar PDF (Selección Múltiple)",
+                   command=self.open_multi_office_selector).pack(side=tk.LEFT, padx=5)
 
         # Cargar todos los datos al iniciar
         self.load_data()
@@ -280,7 +370,7 @@ class InventoryApp(tk.Tk):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes")
+            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes ORDER BY oficina")
         for row in cursor.fetchall():
             self.tree.insert("", tk.END, values=row)
         conn.close()
@@ -325,25 +415,19 @@ class InventoryApp(tk.Tk):
 
     def generate_all_barcodes_pdf(self):
         selected_office = self.office_filter.get().strip()
-        if not selected_office:
-            messagebox.showwarning(
-                "Atención", 
-                "Debes seleccionar una oficina antes de generar el PDF.\n\nUsa el filtro de oficina para seleccionar una.")
-            return
         
-        if selected_office not in self.all_offices:
-            messagebox.showwarning(
-                "Atención", 
-                "La oficina ingresada no existe.\n\nPor favor, selecciona una oficina válida de la lista.")
-            return
+        # Si no hay oficina seleccionada, asumimos que son TODAS
+        if not selected_office:
+            selected_office = "TODAS_LAS_OFICINAS"
         
         records = []
         for item in self.tree.get_children():
             values = self.tree.item(item, "values")
             codigo = values[0]
             detalle_bien = values[3]
+            oficina = values[5]
             tipo_registro = values[7]
-            records.append((codigo, detalle_bien, tipo_registro))
+            records.append((codigo, detalle_bien, tipo_registro, oficina))
 
         if not records:
             messagebox.showwarning("Atención", "No hay registros para generar.")
@@ -352,6 +436,44 @@ class InventoryApp(tk.Tk):
         self.show_progress_window(len(records))
         thread = threading.Thread(
             target=self._generate_pdf_thread, args=(records,), daemon=True
+        )
+        thread.start()
+
+    def open_multi_office_selector(self):
+        """Abre la ventana de selección múltiple de oficinas."""
+        MultiOfficeSelector(self, self.all_offices, self.generate_for_selected_offices)
+
+    def generate_for_selected_offices(self, selected_offices):
+        """Genera el PDF para las oficinas seleccionadas."""
+        if not selected_offices:
+            return
+
+        conn = create_connection()
+        cursor = conn.cursor()
+        
+        placeholders = ','.join(['?'] * len(selected_offices))
+        query = f"SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes WHERE oficina IN ({placeholders}) ORDER BY oficina"
+        
+        cursor.execute(query, selected_offices)
+        rows = cursor.fetchall()
+        conn.close()
+
+        records = []
+        for row in rows:
+            # row indices: 0=codigo, 3=detalle, 5=oficina, 7=tipo_registro
+            records.append((row[0], row[3], row[7], row[5]))
+
+        if not records:
+            messagebox.showwarning("Atención", "No se encontraron registros para las oficinas seleccionadas.")
+            return
+
+        self.show_progress_window(len(records))
+        
+        # Usamos un nombre especial para el archivo
+        office_label = "SELECCION_MULTIPLE"
+        
+        thread = threading.Thread(
+            target=self._generate_pdf_thread_custom, args=(records, office_label), daemon=True
         )
         thread.start()
 
@@ -367,6 +489,23 @@ class InventoryApp(tk.Tk):
         path = generate_barcodes_pdf(
             records, progress_callback=on_progress, 
             selected_office=self.office_filter.get())
+
+        self.after(200, self.progress_win.destroy)
+        self.after(300, lambda: messagebox.showinfo(
+            "Éxito", f"PDF generado correctamente:\n{path}"))
+
+    def _generate_pdf_thread_custom(self, records, label):
+        total = len(records)
+
+        def on_progress(i):
+            percent = int((i / total) * 100)
+            self.progress_bar["value"] = i
+            self.progress_label.config(text=f"{percent}%")
+            self.progress_win.update_idletasks()
+
+        path = generate_barcodes_pdf(
+            records, progress_callback=on_progress, 
+            selected_office=label)
 
         self.after(200, self.progress_win.destroy)
         self.after(300, lambda: messagebox.showinfo(

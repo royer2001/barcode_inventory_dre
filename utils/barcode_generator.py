@@ -213,6 +213,35 @@ def get_font(size: int = 25, bold: bool = False) -> ImageFont.FreeTypeFont:
         return ImageFont.load_default()
 
 
+def _generate_separator_image(office_name: str):
+    img, draw = _create_canvas()
+    
+    # Draw a thick border or filled background to distinguish
+    draw.rectangle(
+        [MARGIN, MARGIN, TARGET_WIDTH - MARGIN, TARGET_HEIGHT - MARGIN], 
+        outline="black", 
+        width=10
+    )
+    
+    font_office = get_font(size=35, bold=True)
+    
+    # Wrap text if too long
+    lines = wrap_text(draw, f"ÁREA:\n{office_name}", font_office, TARGET_WIDTH * 0.8)
+    
+    # Calculate total height of text block
+    total_text_height = len(lines) * font_office.size * 1.2
+    start_y = (TARGET_HEIGHT - total_text_height) / 2
+    
+    y = start_y
+    for line in lines:
+        y = _draw_centered_text(draw, line, y, font_office)
+        
+    buffer = BytesIO()
+    img.save(buffer, format="PNG", dpi=(DPI, DPI))
+    buffer.seek(0)
+    return ImageReader(buffer)
+
+
 def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", progress_callback=None, selected_office=""):
 
     output_pdf += "codigos_barras_"+selected_office+".pdf"
@@ -254,16 +283,43 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
     pdf.setLineWidth(0.8)
     pdf.setDash(3, 2)
 
-    # Reemplaza la sección de líneas de corte en tu función generate_barcodes_pdf
+    # Pre-process records to insert separators
+    processed_items = []
+    last_office = None
+    
+    for record in records:
+        # Unpack record
+        if len(record) == 4:
+             codigo, detalle_bien, tipo_registro, oficina = record
+        else:
+             # Fallback
+             codigo, detalle_bien, tipo_registro = record
+             oficina = "DESCONOCIDO"
 
-    for i, (codigo, detalle_bien, tipo_registro) in enumerate(records, 1):
-        img = generate_barcode(
-            f"{codigo}",
-            title="INVENTARIO DRE HUÁNUCO - 2025",
-            detalle_bien=detalle_bien,
-            logo_path="utils/logo.png",
-            tipo_registro=tipo_registro
-        )
+        # Insert separator if office changes or it's the first one
+        if last_office != oficina:
+            processed_items.append({"type": "separator", "office": oficina})
+        
+        processed_items.append({
+            "type": "barcode",
+            "codigo": codigo,
+            "detalle_bien": detalle_bien,
+            "tipo_registro": tipo_registro,
+            "oficina": oficina
+        })
+        last_office = oficina
+
+    for i, item in enumerate(processed_items, 1):
+        if item["type"] == "separator":
+            img = _generate_separator_image(item["office"])
+        else:
+            img = generate_barcode(
+                f"{item['codigo']}",
+                title="INVENTARIO DRE HUÁNUCO - 2025",
+                detalle_bien=item['detalle_bien'],
+                logo_path="utils/logo.png",
+                tipo_registro=item['tipo_registro']
+            )
 
         # Dibujar la etiqueta
         pdf.drawImage(img, x, y, width=label_width, height=label_height)
@@ -279,7 +335,7 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
         # Línea HORIZONTAL inferior (entre filas)
         row_actual = ((i - 1) // cols) % rows + 1
         # No dibujar en última fila
-        if row_actual < rows and i + cols <= len(records):
+        if row_actual < rows and i + cols <= len(processed_items):
             line_y = y - GAP_Y / 2
             pdf.line(x, line_y, x + label_width, line_y)
 
@@ -295,7 +351,7 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
             y -= label_height + GAP_Y
 
         # Nueva página
-        if i % (cols * rows) == 0 and i < len(records):
+        if i % (cols * rows) == 0 and i < len(processed_items):
             pdf.showPage()
             pdf.setStrokeColorRGB(0.6, 0.6, 0.6)
             pdf.setLineWidth(0.8)
