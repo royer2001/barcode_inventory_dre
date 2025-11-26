@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# Excel files
+*.xlsx
+*.xls
+
+# Database
+*.db
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# PDF files
+*.pdf
