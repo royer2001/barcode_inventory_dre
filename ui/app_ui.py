@@ -185,13 +185,11 @@ class AutoCompleteEntry(tk.Frame):
         return self.var.get()
 
 
-class MultiOfficeSelector(tk.Toplevel):
-    def __init__(self, parent, offices, callback):
+class MultiOfficeGeneratorView(ttk.Frame):
+    def __init__(self, parent):
         super().__init__(parent)
-        self.title("Seleccionar Oficinas")
-        self.geometry("500x600")
-        self.callback = callback
-        self.offices = offices
+        self.all_offices = []
+        self.load_offices()
         self.vars = []
         
         # Frame principal
@@ -244,7 +242,7 @@ class MultiOfficeSelector(tk.Toplevel):
         self.bind("<MouseWheel>", _on_mousewheel)
         
         # Checkboxes
-        for office in self.offices:
+        for office in self.all_offices:
             var = tk.BooleanVar()
             chk = ttk.Checkbutton(self.scrollable_frame, text=office, variable=var)
             chk.pack(anchor="w", padx=5, pady=2)
@@ -252,6 +250,15 @@ class MultiOfficeSelector(tk.Toplevel):
             
         # Botón Generar
         ttk.Button(self, text="Generar PDF", command=self.on_generate).pack(pady=10)
+
+    def load_offices(self):
+        """Carga las oficinas únicas desde la BD."""
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT oficina FROM bienes WHERE oficina IS NOT NULL AND oficina != '' ORDER BY oficina ASC")
+        self.all_offices = [row[0] for row in cursor.fetchall()]
+        conn.close()
         
     def select_all(self):
         for _, var in self.vars:
@@ -262,21 +269,84 @@ class MultiOfficeSelector(tk.Toplevel):
             var.set(False)
             
     def on_generate(self):
-        selected = [office for office, var in self.vars if var.get()]
-        if not selected:
+        selected_offices = [office for office, var in self.vars if var.get()]
+        if not selected_offices:
             messagebox.showwarning("Atención", "Selecciona al menos una oficina.")
             return
-        self.callback(selected)
-        self.destroy()
+        
+        conn = create_connection()
+        cursor = conn.cursor()
+        
+        placeholders = ','.join(['?'] * len(selected_offices))
+        query = f"SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes WHERE oficina IN ({placeholders}) ORDER BY oficina"
+        
+        cursor.execute(query, selected_offices)
+        rows = cursor.fetchall()
+        conn.close()
+
+        records = []
+        for row in rows:
+            # row indices: 0=codigo, 3=detalle, 5=oficina, 7=tipo_registro
+            records.append((row[0], row[3], row[7], row[5]))
+
+        if not records:
+            messagebox.showwarning("Atención", "No se encontraron registros para las oficinas seleccionadas.")
+            return
+
+        self.show_progress_window(len(records))
+        
+        # Usamos un nombre especial para el archivo
+        office_label = "SELECCION_MULTIPLE"
+        
+        thread = threading.Thread(
+            target=self._generate_pdf_thread_custom, args=(records, office_label), daemon=True
+        )
+        thread.start()
+
+    def show_progress_window(self, total):
+        self.progress_win = tk.Toplevel(self)
+        self.progress_win.title("Generando PDF...")
+        self.progress_win.geometry("350x120")
+        self.progress_win.resizable(False, False)
+        self.progress_win.config(bg="white")
+
+        tk.Label(self.progress_win, text="Generando etiquetas, por favor espere...",
+                 bg="white", font=("Arial", 10)).pack(pady=5)
+
+        self.progress_bar = ttk.Progressbar(
+            self.progress_win, orient="horizontal", length=300, mode="determinate"
+        )
+        self.progress_bar.pack(pady=5)
+        self.progress_bar["maximum"] = total
+
+        self.progress_label = tk.Label(self.progress_win, text="0%", bg="white")
+        self.progress_label.pack()
+
+        self.progress_win.transient(self)
+        self.progress_win.grab_set()
+        self.update_idletasks()
+
+    def _generate_pdf_thread_custom(self, records, label):
+        def on_progress(current, total_steps):
+            self.progress_bar["maximum"] = total_steps
+            percent = int((current / total_steps) * 100)
+            self.progress_bar["value"] = current
+            self.progress_label.config(text=f"{percent}%")
+            self.progress_win.update_idletasks()
+
+        path = generate_barcodes_pdf(
+            records, progress_callback=on_progress, 
+            selected_office=label)
+
+        self.after(200, self.progress_win.destroy)
+        self.after(300, lambda: messagebox.showinfo(
+            "Éxito", f"PDF generado correctamente:\n{path}"))
 
 
-class InventoryApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Gestión de Inventario - Códigos de Barra")
-        self.geometry("950x600")
-        self.configure(bg="#f8f9fa")
-
+class InventoryView(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        
         # Inicializar all_offices ANTES de crear widgets
         self.all_offices = []
         self.load_offices()
@@ -345,8 +415,7 @@ class InventoryApp(tk.Tk):
                    command=self.generate_selected_barcode).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Generar PDF (Filtro Actual)",
                    command=self.generate_all_barcodes_pdf).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Generar PDF (Selección Múltiple)",
-                   command=self.open_multi_office_selector).pack(side=tk.LEFT, padx=5)
+        # Removed "Generar PDF (Selección Múltiple)" button
 
         # Cargar todos los datos al iniciar
         self.load_data()
@@ -439,47 +508,7 @@ class InventoryApp(tk.Tk):
         )
         thread.start()
 
-    def open_multi_office_selector(self):
-        """Abre la ventana de selección múltiple de oficinas."""
-        MultiOfficeSelector(self, self.all_offices, self.generate_for_selected_offices)
-
-    def generate_for_selected_offices(self, selected_offices):
-        """Genera el PDF para las oficinas seleccionadas."""
-        if not selected_offices:
-            return
-
-        conn = create_connection()
-        cursor = conn.cursor()
-        
-        placeholders = ','.join(['?'] * len(selected_offices))
-        query = f"SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes WHERE oficina IN ({placeholders}) ORDER BY oficina"
-        
-        cursor.execute(query, selected_offices)
-        rows = cursor.fetchall()
-        conn.close()
-
-        records = []
-        for row in rows:
-            # row indices: 0=codigo, 3=detalle, 5=oficina, 7=tipo_registro
-            records.append((row[0], row[3], row[7], row[5]))
-
-        if not records:
-            messagebox.showwarning("Atención", "No se encontraron registros para las oficinas seleccionadas.")
-            return
-
-        self.show_progress_window(len(records))
-        
-        # Usamos un nombre especial para el archivo
-        office_label = "SELECCION_MULTIPLE"
-        
-        thread = threading.Thread(
-            target=self._generate_pdf_thread_custom, args=(records, office_label), daemon=True
-        )
-        thread.start()
-
     def _generate_pdf_thread(self, records):
-
-
         def on_progress(current, total_steps):
             self.progress_bar["maximum"] = total_steps
             percent = int((current / total_steps) * 100)
@@ -490,24 +519,6 @@ class InventoryApp(tk.Tk):
         path = generate_barcodes_pdf(
             records, progress_callback=on_progress, 
             selected_office=self.office_filter.get())
-
-        self.after(200, self.progress_win.destroy)
-        self.after(300, lambda: messagebox.showinfo(
-            "Éxito", f"PDF generado correctamente:\n{path}"))
-
-    def _generate_pdf_thread_custom(self, records, label):
-
-
-        def on_progress(current, total_steps):
-            self.progress_bar["maximum"] = total_steps
-            percent = int((current / total_steps) * 100)
-            self.progress_bar["value"] = current
-            self.progress_label.config(text=f"{percent}%")
-            self.progress_win.update_idletasks()
-
-        path = generate_barcodes_pdf(
-            records, progress_callback=on_progress, 
-            selected_office=label)
 
         self.after(200, self.progress_win.destroy)
         self.after(300, lambda: messagebox.showinfo(
@@ -554,3 +565,221 @@ class InventoryApp(tk.Tk):
         self.progress_win.transient(self)
         self.progress_win.grab_set()
         self.update_idletasks()
+
+
+class BarcodeGeneratorView(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.all_offices = []
+        self.load_offices()
+        
+        self.setup_ui()
+        self.load_data()
+
+    def load_offices(self):
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT oficina FROM bienes WHERE oficina IS NOT NULL AND oficina != '' ORDER BY oficina ASC")
+        self.all_offices = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+    def setup_ui(self):
+        # Top: Filter
+        filter_frame = ttk.LabelFrame(self, text="Filtros y Búsqueda")
+        filter_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(filter_frame, text="Oficina:").pack(side=tk.LEFT, padx=5)
+        self.office_filter = AutoCompleteEntry(self.all_offices, filter_frame, width=30)
+        self.office_filter.pack(side=tk.LEFT, padx=5)
+        self.office_filter.bind("<<AutoCompleteSelected>>", self.filter_by_office)
+        
+        ttk.Label(filter_frame, text="Buscar:").pack(side=tk.LEFT, padx=15)
+        self.search_var = tk.StringVar()
+        self.search_var.trace("w", self.search_records)
+        ttk.Entry(filter_frame, textvariable=self.search_var, width=30).pack(side=tk.LEFT, padx=5)
+        
+        # Middle: Lists
+        paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Source
+        source_frame = ttk.LabelFrame(paned, text="Bienes Disponibles")
+        paned.add(source_frame, weight=1)
+        
+        cols = ("codigo_completo", "detalle_bien", "oficina", "tipo_registro")
+        self.tree_source = ttk.Treeview(source_frame, columns=cols, show="headings")
+        self.tree_source.heading("codigo_completo", text="Código")
+        self.tree_source.heading("detalle_bien", text="Detalle")
+        self.tree_source.heading("oficina", text="Oficina")
+        self.tree_source.heading("tipo_registro", text="Tipo")
+        self.tree_source.column("codigo_completo", width=120)
+        self.tree_source.column("detalle_bien", width=200)
+        self.tree_source.column("oficina", width=150)
+        self.tree_source.column("tipo_registro", width=80)
+        
+        scroll_source = ttk.Scrollbar(source_frame, orient="vertical", command=self.tree_source.yview)
+        self.tree_source.configure(yscrollcommand=scroll_source.set)
+        self.tree_source.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_source.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Buttons
+        btn_frame = ttk.Frame(paned)
+        paned.add(btn_frame, weight=0)
+        
+        ttk.Button(btn_frame, text="Agregar >>", command=self.add_items).pack(pady=20, padx=5)
+        ttk.Button(btn_frame, text="<< Quitar", command=self.remove_items).pack(pady=20, padx=5)
+        
+        # Target
+        target_frame = ttk.LabelFrame(paned, text="A Generar (PDF)")
+        paned.add(target_frame, weight=1)
+        
+        self.tree_target = ttk.Treeview(target_frame, columns=cols, show="headings")
+        self.tree_target.heading("codigo_completo", text="Código")
+        self.tree_target.heading("detalle_bien", text="Detalle")
+        self.tree_target.heading("oficina", text="Oficina")
+        self.tree_target.heading("tipo_registro", text="Tipo")
+        self.tree_target.column("codigo_completo", width=120)
+        self.tree_target.column("detalle_bien", width=200)
+        self.tree_target.column("oficina", width=150)
+        self.tree_target.column("tipo_registro", width=80)
+        
+        scroll_target = ttk.Scrollbar(target_frame, orient="vertical", command=self.tree_target.yview)
+        self.tree_target.configure(yscrollcommand=scroll_target.set)
+        self.tree_target.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_target.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bottom: Action
+        action_frame = ttk.Frame(self)
+        action_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Button(action_frame, text="Generar PDF", command=self.generate_pdf).pack(side=tk.RIGHT)
+
+    def load_data(self):
+        self.update_source_tree("SELECT codigo_completo, detalle_bien, oficina, tipo_registro FROM bienes ORDER BY oficina")
+
+    def update_source_tree(self, query, params=()):
+        for item in self.tree_source.get_children():
+            self.tree_source.delete(item)
+            
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        for row in cursor.fetchall():
+            self.tree_source.insert("", tk.END, values=row)
+        conn.close()
+
+    def filter_by_office(self, event=None):
+        office = self.office_filter.get()
+        if not office:
+            self.load_data()
+            return
+        self.update_source_tree("SELECT codigo_completo, detalle_bien, oficina, tipo_registro FROM bienes WHERE oficina = ?", (office,))
+
+    def search_records(self, *args):
+        search = self.search_var.get().lower()
+        
+        conn = create_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT codigo_completo, detalle_bien, oficina, tipo_registro FROM bienes")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        for item in self.tree_source.get_children():
+            self.tree_source.delete(item)
+            
+        for row in rows:
+            if any(search in str(v).lower() for v in row):
+                self.tree_source.insert("", tk.END, values=row)
+
+    def add_items(self):
+        selected = self.tree_source.selection()
+        for item in selected:
+            values = self.tree_source.item(item, "values")
+            # Check if already in target
+            exists = False
+            for target_item in self.tree_target.get_children():
+                if self.tree_target.item(target_item, "values")[0] == values[0]:
+                    exists = True
+                    break
+            if not exists:
+                self.tree_target.insert("", tk.END, values=values)
+
+    def remove_items(self):
+        selected = self.tree_target.selection()
+        for item in selected:
+            self.tree_target.delete(item)
+
+    def generate_pdf(self):
+        items = []
+        for item in self.tree_target.get_children():
+            # values: codigo, detalle, oficina, tipo
+            v = self.tree_target.item(item, "values")
+            items.append((v[0], v[1], v[3], v[2]))
+            
+        if not items:
+            messagebox.showwarning("Atención", "No hay items para generar.")
+            return
+            
+        self.show_progress_window(len(items))
+        thread = threading.Thread(target=self._generate_pdf_thread, args=(items,), daemon=True)
+        thread.start()
+
+    def show_progress_window(self, total):
+        self.progress_win = tk.Toplevel(self)
+        self.progress_win.title("Generando PDF...")
+        self.progress_win.geometry("350x120")
+        self.progress_win.resizable(False, False)
+        self.progress_win.config(bg="white")
+
+        tk.Label(self.progress_win, text="Generando etiquetas, por favor espere...",
+                 bg="white", font=("Arial", 10)).pack(pady=5)
+
+        self.progress_bar = ttk.Progressbar(
+            self.progress_win, orient="horizontal", length=300, mode="determinate"
+        )
+        self.progress_bar.pack(pady=5)
+        self.progress_bar["maximum"] = total
+
+        self.progress_label = tk.Label(self.progress_win, text="0%", bg="white")
+        self.progress_label.pack()
+
+        self.progress_win.transient(self)
+        self.progress_win.grab_set()
+        self.update_idletasks()
+        
+    def _generate_pdf_thread(self, records):
+        def on_progress(current, total_steps):
+            self.progress_bar["maximum"] = total_steps
+            percent = int((current / total_steps) * 100)
+            self.progress_bar["value"] = current
+            self.progress_label.config(text=f"{percent}%")
+            self.progress_win.update_idletasks()
+            
+        path = generate_barcodes_pdf(records, progress_callback=on_progress, selected_office="SELECCION_PERSONALIZADA")
+        
+        self.after(200, self.progress_win.destroy)
+        self.after(300, lambda: messagebox.showinfo(
+            "Éxito", f"PDF generado correctamente:\n{path}"))
+
+
+class InventoryApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Gestión de Inventario - Códigos de Barra")
+        self.geometry("1000x700")
+        self.configure(bg="#f8f9fa")
+        
+        # Estilo
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        
+        self.tab1 = InventoryView(notebook)
+        self.tab2 = BarcodeGeneratorView(notebook)
+        self.tab3 = MultiOfficeGeneratorView(notebook)
+        
+        notebook.add(self.tab1, text="Inventario General")
+        notebook.add(self.tab2, text="Generador Personalizado")
+        notebook.add(self.tab3, text="Generador por Oficinas")
