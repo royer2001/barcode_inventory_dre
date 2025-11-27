@@ -478,11 +478,12 @@ class InventoryApp(tk.Tk):
         thread.start()
 
     def _generate_pdf_thread(self, records):
-        total = len(records)
 
-        def on_progress(i):
-            percent = int((i / total) * 100)
-            self.progress_bar["value"] = i
+
+        def on_progress(current, total_steps):
+            self.progress_bar["maximum"] = total_steps
+            percent = int((current / total_steps) * 100)
+            self.progress_bar["value"] = current
             self.progress_label.config(text=f"{percent}%")
             self.progress_win.update_idletasks()
 
@@ -495,11 +496,12 @@ class InventoryApp(tk.Tk):
             "Éxito", f"PDF generado correctamente:\n{path}"))
 
     def _generate_pdf_thread_custom(self, records, label):
-        total = len(records)
 
-        def on_progress(i):
-            percent = int((i / total) * 100)
-            self.progress_bar["value"] = i
+
+        def on_progress(current, total_steps):
+            self.progress_bar["maximum"] = total_steps
+            percent = int((current / total_steps) * 100)
+            self.progress_bar["value"] = current
             self.progress_label.config(text=f"{percent}%")
             self.progress_win.update_idletasks()
 

@@ -340,7 +340,7 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
             pdf.line(x, line_y, x + label_width, line_y)
 
         if progress_callback:
-            progress_callback(i)
+            progress_callback(i, len(processed_items))
 
         # Avance de columna
         x += label_width + GAP_X
