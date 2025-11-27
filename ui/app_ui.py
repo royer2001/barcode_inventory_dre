@@ -162,8 +162,8 @@ class AutoCompleteEntry(tk.Frame):
                 # Si el foco está en el listbox o en el entry, no cerrar
                 if focused == self.lb or focused == self.entry:
                     return
-                # Si el listbox existe, no cerrar aún
-                if self.lb and self.lb.winfo_exists():
+                # Si el foco está en el botón o dentro del frame del listbox (ej. scrollbar)
+                if focused == self.dropdown_btn or (self.lb_frame and str(focused).startswith(str(self.lb_frame))):
                     return
             except:
                 pass
