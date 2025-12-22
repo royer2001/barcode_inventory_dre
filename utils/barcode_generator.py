@@ -51,10 +51,10 @@ def _generate_base_barcode(codigo: str) -> Image.Image:
     
     writer = ImageWriter()
     writer.dpi = 600
-    writer.module_width = 0.55  # grosor de barras (aumentado para mejor lectura)
-    writer.module_height = 20.0  # altura de barras en mm (aumentado)
+    writer.module_width = 0.55  # grosor de barras (óptimo para lectura)
+    writer.module_height = 25.0  # altura de barras en mm (aumentado para mayor legibilidad)
     writer.write_text = False   # sin texto debajo
-    writer.quiet_zone = 6  # margen blanco lateral (mínimo recomendado para Code128)
+    writer.quiet_zone = 8  # margen blanco lateral (aumentado para mejor detección)
 
     Code128(codigo, writer=writer).save(tmp_path)
 
@@ -64,13 +64,18 @@ def _generate_base_barcode(codigo: str) -> Image.Image:
 
 
 def _resize_barcode(img: Image.Image) -> Image.Image:
+    """Redimensiona el código de barras manteniendo la proporción para no distorsionar las barras."""
+    max_w = int(TARGET_WIDTH * 0.90)  # Reducido para dejar espacio al SIGA/SOBRANTE rotado
+    max_h = int(TARGET_HEIGHT * 0.80)  # Aumentado para barras más altas
 
-    max_w = int(TARGET_WIDTH * 0.95)
-    max_h = int(TARGET_HEIGHT * 0.75)  # Aumentado de 0.65 a 0.75 para barras más grandes
-
-    # Redimensionar solo si es más grande que el límite
-    if img.width > max_w or img.height > max_h:
-        img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+    # Calcular escala proporcional (para no distorsionar las barras)
+    scale = min(max_w / img.width, max_h / img.height)
+    
+    if scale < 1.0:  # Solo redimensionar si es más grande
+        new_w = int(img.width * scale)
+        new_h = int(img.height * scale)
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
     return img
 
 
@@ -101,9 +106,9 @@ def _add_logo(canvas: Image.Image, logo_path: str):
 
     logo = logo.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    # Posición (abajo izquierda con margen)
-    x = int(TARGET_WIDTH * 0.05)
-    y = int(TARGET_HEIGHT * 0.9) - logo.height
+    # Posición (esquina inferior izquierda con pequeño margen)
+    x = 10  # Margen izquierdo pequeño
+    y = TARGET_HEIGHT - logo.height - 10  # Margen inferior pequeño
 
     canvas.paste(logo, (x, y), logo)
 
@@ -142,14 +147,13 @@ def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.
     # 6️⃣ Agregar logo
     _add_logo(canvas_img, logo_path)
 
-    # agregar tipo de registro en la parte inferior derecha
+    # agregar tipo de registro en la esquina inferior derecha (horizontal)
     if tipo_registro:
-        font_tipo = get_font(size=20, bold=True)  # Reducido de 32 a 20
+        font_tipo = get_font(size=18, bold=True)
         text_w = draw.textlength(tipo_registro, font=font_tipo)
-        x_tipo = TARGET_WIDTH - text_w - 20
-        y_tipo = TARGET_HEIGHT - font_tipo.size - 20
-        draw.text((x_tipo, y_tipo), tipo_registro,
-                  fill="black", font=font_tipo)
+        x_tipo = TARGET_WIDTH - text_w - 10  # 10px desde el borde derecho
+        y_tipo = TARGET_HEIGHT - font_tipo.size - 10  # 10px desde el borde inferior
+        draw.text((x_tipo, y_tipo), tipo_registro, fill="black", font=font_tipo)
 
     # 7️⃣ Guardar en memoria, NO en disco
     if not save_file:
