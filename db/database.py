@@ -1,7 +1,12 @@
 import sqlite3
+import os
+
+# Obtener la ruta del directorio raíz del proyecto
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_DB_PATH = os.path.join(_BASE_DIR, "inventario.db")
 
 def create_connection():
-    conn = sqlite3.connect("inventario.db")
+    conn = sqlite3.connect(_DB_PATH)
     return conn
 
 def create_table():

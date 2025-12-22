@@ -26,8 +26,8 @@ BORDER_COLOR = "black"
 MARGIN = 6
 MAX_WIDTH_RATIO = 0.9
 MAX_HEIGHT_RATIO = 0.6
-LOGO_RATIO_W = 0.22
-LOGO_RATIO_H = 0.32
+LOGO_RATIO_W = 0.15  # Reducido de 0.22
+LOGO_RATIO_H = 0.22  # Reducido de 0.32
 MAX_BARCODE_WIDTH = TARGET_WIDTH * 0.80
 MAX_BARCODE_HEIGHT = TARGET_HEIGHT * 0.35
 # -------------------------------------------------
@@ -37,22 +37,7 @@ def _create_canvas() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGB", (TARGET_WIDTH, TARGET_HEIGHT), "white")
     draw = ImageDraw.Draw(img)
 
-    # Borde redondeado
-    draw.rounded_rectangle(
-        [MARGIN, MARGIN, TARGET_WIDTH - MARGIN, TARGET_HEIGHT - MARGIN],
-        radius=BORDER_RADIUS,
-        outline=BORDER_COLOR,
-        width=BORDER_WIDTH,
-    )
-
-    '''
-    draw.rounded_rectangle(
-        [MARGIN, MARGIN, TARGET_WIDTH - MARGIN - BORDER_WIDTH, TARGET_HEIGHT - MARGIN - BORDER_WIDTH],
-        radius=BORDER_RADIUS,
-        outline=BORDER_COLOR,
-        width=BORDER_WIDTH,
-    )
-    '''
+    # Sin borde para evitar interferencia con otros elementos
     return img, draw
 
 
@@ -66,9 +51,10 @@ def _generate_base_barcode(codigo: str) -> Image.Image:
     
     writer = ImageWriter()
     writer.dpi = 600
-    writer.module_width = 0.30  # grosor de barras
+    writer.module_width = 0.55  # grosor de barras (aumentado para mejor lectura)
+    writer.module_height = 20.0  # altura de barras en mm (aumentado)
     writer.write_text = False   # sin texto debajo
-    writer.quiet_zone = 1  # margen blanco lateral más pequeño (default 6)
+    writer.quiet_zone = 6  # margen blanco lateral (mínimo recomendado para Code128)
 
     Code128(codigo, writer=writer).save(tmp_path)
 
@@ -80,7 +66,7 @@ def _generate_base_barcode(codigo: str) -> Image.Image:
 def _resize_barcode(img: Image.Image) -> Image.Image:
 
     max_w = int(TARGET_WIDTH * 0.95)
-    max_h = int(TARGET_HEIGHT * 0.55)
+    max_h = int(TARGET_HEIGHT * 0.75)  # Aumentado de 0.65 a 0.75 para barras más grandes
 
     # Redimensionar solo si es más grande que el límite
     if img.width > max_w or img.height > max_h:
@@ -132,7 +118,7 @@ def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.
     barcode_img = _resize_barcode(_generate_base_barcode(codigo))
 
     # 3️⃣ Fuentes
-    font_title = get_font(size=25)
+    font_title = get_font(size=18)  # Reducido de 25 a 18
     font_detalle = get_font(size=23, bold=True)
     font_oficina = get_font(size=18)
 
@@ -158,10 +144,10 @@ def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.
 
     # agregar tipo de registro en la parte inferior derecha
     if tipo_registro:
-        font_tipo = get_font(size=32, bold=True)
+        font_tipo = get_font(size=20, bold=True)  # Reducido de 32 a 20
         text_w = draw.textlength(tipo_registro, font=font_tipo)
-        x_tipo = TARGET_WIDTH - text_w - 30
-        y_tipo = TARGET_HEIGHT - font_tipo.size - 30
+        x_tipo = TARGET_WIDTH - text_w - 20
+        y_tipo = TARGET_HEIGHT - font_tipo.size - 20
         draw.text((x_tipo, y_tipo), tipo_registro,
                   fill="black", font=font_tipo)
 

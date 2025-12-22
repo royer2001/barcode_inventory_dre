@@ -16,18 +16,32 @@ def load_excel_to_db(file_path, sheet_name="2 MAQ.", header=None):
     print("Columnas detectadas:", df.columns.tolist())
     print("Filas totales que pandas está leyendo:", len(df))
 
-    # Detectar columnas principales
+    # Detectar columnas principales (soporta formato antiguo y Excel unificado)
     col_pat = next(
-        (c for c in df.columns if "codigo del bien" in c or "patrimonial" in c), None)
-    col_int = next((c for c in df.columns if "codigo interno" in c), None)
-    col_det = next((c for c in df.columns if "detalle del   bien" in c), None)
+        (c for c in df.columns if "codigo del bien" in c or "patrimonial" in c or c == "codigo_bien"), None)
+    col_int = next(
+        (c for c in df.columns if "codigo interno" in c or "codigo inter" in c or c == "codigo_interno"), None)
+    col_det = next(
+        (c for c in df.columns if "detalle del   bien" in c or c == "detalle_bien"), None)
     col_desc = next(
         (c for c in df.columns if "caracteristicas" in c or "descripcion" in c), None)
     col_ofi = next((c for c in df.columns if "oficina" in c), None)
-    col_reg = next(
-        (c for c in df.columns if "unnamed: 2" in c or "tipo de registro" in c), None)
+    # Para el Excel unificado, usamos la columna 'tipo_registro' como prioridad
+    col_reg = next((c for c in df.columns if c == "tipo_registro"), 
+              next((c for c in df.columns if "unnamed: 2" in c or "tipo de registro" in c or "unnamed: 3" in c or c == "origen"), None))
     col_est = next((c for c in df.columns if "estad" in c), None)
     col_resp = next((c for c in df.columns if "responsable" in c), None)
+
+    # Mostrar columnas detectadas
+    print(f"📋 Mapeo de columnas:")
+    print(f"   codigo_patrimonial -> {col_pat}")
+    print(f"   codigo_interno     -> {col_int}")
+    print(f"   detalle_bien       -> {col_det}")
+    print(f"   descripcion        -> {col_desc}")
+    print(f"   oficina            -> {col_ofi}")
+    print(f"   tipo_registro      -> {col_reg}")
+    print(f"   estado             -> {col_est}")
+    print(f"   responsable        -> {col_resp}")
 
     if not all([col_pat, col_int, col_det, col_desc, col_ofi, col_reg]):
         print("❌ No se encontraron las columnas esperadas.")
@@ -47,7 +61,7 @@ def load_excel_to_db(file_path, sheet_name="2 MAQ.", header=None):
     df["key"] = df[col_pat].str.strip() + df[col_int].str.strip()
 
     # Diferenciar sobrantes en la clave de duplicados para que no se mezclen con SIGA
-    is_sobrante = df[col_reg].astype(str).str.lower().str.contains("sobrantes", na=False)
+    is_sobrante = df[col_reg].astype(str).str.lower().str.contains("sobrante", na=False)
     df.loc[is_sobrante, "key"] = df.loc[is_sobrante, "key"] + "S"
 
     duplicados = df[df.duplicated("key", keep=False)]
@@ -78,9 +92,20 @@ def load_excel_to_db(file_path, sheet_name="2 MAQ.", header=None):
         tipo_registro = str(row.get(col_reg, "")).strip()
         responsable = str(row.get(col_resp, "")).strip()
         
-        # Normalizar tipo_registro: SOBRANTES -> SOBRANTE
-        if "sobrantes" in tipo_registro.lower():
+        # Normalizar tipo_registro para Excel unificado y formato antiguo
+        tipo_raw = tipo_registro.lower()
+        if "sobrante" in tipo_raw:
             tipo_registro = "SOBRANTE"
+        elif "siga" in tipo_raw:
+            tipo_registro = "SIGA"
+        elif "pecosa" in tipo_raw:
+            tipo_registro = "PECOSAS"
+        elif "asignacion" in tipo_raw:
+            tipo_registro = "ASIGNACIONES"
+        elif "afectacion" in tipo_raw:
+            tipo_registro = "AFECTACION"
+        else:
+            tipo_registro = tipo_registro.upper()  # Mantener como está
         
         # Procesar estado
         raw_estado = str(row.get(col_est, "")).strip().upper()

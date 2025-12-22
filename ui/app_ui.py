@@ -383,7 +383,7 @@ class InventoryView(ttk.Frame):
 
         # ======== 📋 Tabla ========
         columns = ("codigo_completo", "codigo_patrimonial", "codigo_interno",
-                   "detalle_bien", "descripcion", "oficina", "fuente", "tipo_registro")
+                   "detalle_bien", "descripcion", "oficina", "responsable", "fuente", "tipo_registro")
         self.tree = ttk.Treeview(
             self, columns=columns, show="headings", height=15)
 
@@ -393,6 +393,7 @@ class InventoryView(ttk.Frame):
         self.tree.heading("detalle_bien", text="Detalle del Bien")
         self.tree.heading("descripcion", text="Descripción")
         self.tree.heading("oficina", text="Oficina")
+        self.tree.heading("responsable", text="Responsable")
         self.tree.heading("fuente", text="Fuente")
         self.tree.heading("tipo_registro", text="Tipo de Registro")
 
@@ -400,11 +401,12 @@ class InventoryView(ttk.Frame):
         self.tree.column("codigo_completo", width=140)
         self.tree.column("codigo_patrimonial", width=120)
         self.tree.column("codigo_interno", width=100)
-        self.tree.column("detalle_bien", width=240)
-        self.tree.column("descripcion", width=160)
-        self.tree.column("oficina", width=160)
-        self.tree.column("fuente", width=100)
-        self.tree.column("tipo_registro", width=120)
+        self.tree.column("detalle_bien", width=200)
+        self.tree.column("descripcion", width=140)
+        self.tree.column("oficina", width=140)
+        self.tree.column("responsable", width=140)
+        self.tree.column("fuente", width=80)
+        self.tree.column("tipo_registro", width=100)
 
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -439,7 +441,7 @@ class InventoryView(ttk.Frame):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes ORDER BY oficina")
+            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, responsable, fuente, tipo_registro FROM bienes ORDER BY oficina")
         for row in cursor.fetchall():
             self.tree.insert("", tk.END, values=row)
         conn.close()
@@ -457,7 +459,7 @@ class InventoryView(ttk.Frame):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes WHERE oficina = ?",
+            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, responsable, fuente, tipo_registro FROM bienes WHERE oficina = ?",
             (selected_office,)
         )
         for row in cursor.fetchall():
@@ -495,7 +497,7 @@ class InventoryView(ttk.Frame):
             codigo = values[0]
             detalle_bien = values[3]
             oficina = values[5]
-            tipo_registro = values[7]
+            tipo_registro = values[8]  # índice actualizado por nueva columna responsable
             records.append((codigo, detalle_bien, tipo_registro, oficina))
 
         if not records:
@@ -534,7 +536,7 @@ class InventoryView(ttk.Frame):
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, fuente, tipo_registro FROM bienes")
+            "SELECT codigo_completo, codigo_patrimonial, codigo_interno, detalle_bien, descripcion, oficina, responsable, fuente, tipo_registro FROM bienes")
         rows = cursor.fetchall()
         conn.close()
 
