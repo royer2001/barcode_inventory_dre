@@ -15,7 +15,7 @@ OUTPUT_DIR = "assets/generated_barcodes"
 
 # ----------------- CONFIGURACIÓN -----------------
 OUTPUT_DIR = "assets/generated_barcodes"
-DPI = 300
+DPI = 600
 CM_TO_INCH = 1 / 2.54
 WIDTH_CM, HEIGHT_CM = 5.94, 3
 TARGET_WIDTH = int(WIDTH_CM * CM_TO_INCH * DPI)
@@ -26,15 +26,21 @@ BORDER_COLOR = "black"
 MARGIN = 6
 MAX_WIDTH_RATIO = 0.9
 MAX_HEIGHT_RATIO = 0.6
-LOGO_RATIO_W = 0.15  # Reducido de 0.22
-LOGO_RATIO_H = 0.22  # Reducido de 0.32
-MAX_BARCODE_WIDTH = TARGET_WIDTH * 0.80
-MAX_BARCODE_HEIGHT = TARGET_HEIGHT * 0.35
+LOGO_RATIO_W = 0.15
+LOGO_RATIO_H = 0.22
+
+# Dimensiones mínimas recomendadas para códigos de barras (mm)
+# Basado en estándares EAN-13/Code128: 37.29mm x 22.85mm (nominal)
+MIN_BARCODE_WIDTH_MM = 37.0
+MIN_BARCODE_HEIGHT_MM = 23.0
+# Convertir a píxeles a 600 DPI
+MIN_BARCODE_WIDTH_PX = int(MIN_BARCODE_WIDTH_MM * CM_TO_INCH * DPI / 10)
+MIN_BARCODE_HEIGHT_PX = int(MIN_BARCODE_HEIGHT_MM * CM_TO_INCH * DPI / 10)
 # -------------------------------------------------
 
 
 def _create_canvas() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
-    img = Image.new("RGB", (TARGET_WIDTH, TARGET_HEIGHT), "white")
+    img = Image.new("L", (TARGET_WIDTH, TARGET_HEIGHT), "white")
     draw = ImageDraw.Draw(img)
 
     # Sin borde para evitar interferencia con otros elementos
@@ -51,29 +57,45 @@ def _generate_base_barcode(codigo: str) -> Image.Image:
     
     writer = ImageWriter()
     writer.dpi = 600
-    writer.module_width = 0.55  # grosor de barras (óptimo para lectura)
-    writer.module_height = 25.0  # altura de barras en mm (aumentado para mayor legibilidad)
-    writer.write_text = False   # sin texto debajo
-    writer.quiet_zone = 8  # margen blanco lateral (aumentado para mejor detección)
+    # Especificaciones basadas en diagrama técnico:
+    # - Ancho barras: ~80% del ancho total
+    # - Altura barras: 31.8mm (escalado a nuestra etiqueta = ~18mm)
+    # - Zona silenciosa: 4.8mm mínimo a cada lado
+    writer.module_width = 0.4  # Ancho de cada barra en mm
+    writer.module_height = 18.0  # Altura de las barras en mm (proporción del diagrama)
+    writer.write_text = False
+    # Zona silenciosa: ~5mm a cada lado (aprox 12 módulos de 0.4mm)
+    writer.quiet_zone = 12
+    
+    # Guardar sin texto debajo
+    Code128(codigo, writer=writer).save(tmp_path, options={"write_text": False})
 
-    Code128(codigo, writer=writer).save(tmp_path)
-
-    img = Image.open(tmp_path + ".png").convert("RGB")
+    img = Image.open(tmp_path + ".png").convert("L")
     os.remove(tmp_path + ".png")
     return img
 
 
 def _resize_barcode(img: Image.Image) -> Image.Image:
-    """Redimensiona el código de barras manteniendo la proporción para no distorsionar las barras."""
-    max_w = int(TARGET_WIDTH * 0.90)  # Reducido para dejar espacio al SIGA/SOBRANTE rotado
-    max_h = int(TARGET_HEIGHT * 0.80)  # Aumentado para barras más altas
-
+    """Redimensiona el código de barras siguiendo especificaciones técnicas."""
+    # Según diagrama: código ocupa 80% del ancho total (122.428/152.428)
+    max_w = int(TARGET_WIDTH * 0.80)
+    # Altura máxima disponible para el barcode (sin texto debajo)
+    max_h = int(TARGET_HEIGHT * 0.45)
+    
     # Calcular escala proporcional (para no distorsionar las barras)
     scale = min(max_w / img.width, max_h / img.height)
     
-    if scale < 1.0:  # Solo redimensionar si es más grande
-        new_w = int(img.width * scale)
-        new_h = int(img.height * scale)
+    new_w = int(img.width * scale)
+    new_h = int(img.height * scale)
+    
+    # Asegurar dimensiones mínimas recomendadas
+    if new_w < MIN_BARCODE_WIDTH_PX:
+        new_w = MIN_BARCODE_WIDTH_PX
+    if new_h < MIN_BARCODE_HEIGHT_PX:
+        new_h = MIN_BARCODE_HEIGHT_PX
+    
+    # Redimensionar si es necesario
+    if new_w != img.width or new_h != img.height:
         img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
     
     return img
@@ -89,7 +111,24 @@ def _add_logo(canvas: Image.Image, logo_path: str):
     if not os.path.exists(logo_path):
         return
 
+    # Convertir logo a NEGRO PURO (sin grises) para impresión óptima
     logo = Image.open(logo_path).convert("RGBA")
+    
+    # Crear fondo blanco para aplanar transparencias
+    background = Image.new("L", logo.size, 255)  # 255 = blanco
+    
+    if "A" in logo.getbands():
+        alpha = logo.split()[3]
+        logo_gray = logo.convert("L")
+        background.paste(logo_gray, mask=alpha)
+        logo = background
+    else:
+        logo = logo.convert("L")
+    
+    # Aplicar umbral para convertir a NEGRO PURO (0) y BLANCO PURO (255)
+    # Cualquier píxel más oscuro que 180 se vuelve negro, el resto blanco
+    threshold = 180
+    logo = logo.point(lambda p: 0 if p < threshold else 255)
 
     # Tamaño máximo deseado basado en porcentaje del sticker
     max_w = int(TARGET_WIDTH * LOGO_RATIO_W)
@@ -110,7 +149,7 @@ def _add_logo(canvas: Image.Image, logo_path: str):
     x = 10  # Margen izquierdo pequeño
     y = TARGET_HEIGHT - logo.height - 10  # Margen inferior pequeño
 
-    canvas.paste(logo, (x, y), logo)
+    canvas.paste(logo, (x, y))
 
 
 def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.png", detalle_bien: str = "", save_file: bool = False, tipo_registro: str = ""):
@@ -122,37 +161,63 @@ def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.
     # 2️⃣ Generar barcode
     barcode_img = _resize_barcode(_generate_base_barcode(codigo))
 
-    # 3️⃣ Fuentes
-    font_title = get_font(size=18)  # Reducido de 25 a 18
-    font_detalle = get_font(size=23, bold=True)
-    font_oficina = get_font(size=18)
+    # 3️⃣ Fuentes más grandes para mejor legibilidad
+    font_title = get_font(size=42, bold=True)  # Denominación del bien
+    font_detalle = get_font(size=34)  # Título inventario
+    font_area = get_font(size=38)  # Área / Oficina
 
-    # 4️⃣ Dibujar textos
-    y = 20
-    y = _draw_centered_text(draw, title, y, font_title)
+    # Margen izquierdo para alineación
+    margin_left = 25
+    max_text_width = TARGET_WIDTH - margin_left - 25  # Ancho disponible para texto
+    
+    # 4️⃣ Dibujar textos alineados a la izquierda
+    y = 10
+    
+    # Denominación del bien (compacta, hasta 2 líneas)
+    denominacion_lines = wrap_text(draw, detalle_bien, font_title, max_text_width)[:2]
+    for line in denominacion_lines:
+        draw.text((margin_left, y), line, fill="black", font=font_title)
+        y += int(font_title.size * 1.1)
+    
+    # Título Inventario (NEGRO PURO - antes era gris)
+    detalle_linea = title.upper() if title else ""
+    draw.text((margin_left, y), detalle_linea, fill="black", font=font_detalle)
+    y += int(font_detalle.size * 1.15)
+    
+    # ÁREA / OFICINA (visible y claro)
+    draw.text((margin_left, y), "ÁREA / OFICINA: __________________________________", fill="black", font=font_area)
+    y += int(font_area.size * 1.2)
 
-    lines = wrap_text(draw, detalle_bien, font_detalle, TARGET_WIDTH * 0.9)[:2]
-    for line in lines:
-        y = _draw_centered_text(draw, line, y, font_detalle)
-
-    y += 10
-    y = _draw_centered_text(
-        draw, "ÁREA / OFICINA: _______________________________________________", y, font_oficina)
-    y += 10
-
-    # 5️⃣ Pegar barcode
+    # 5️⃣ Pegar barcode centrado
+    # Espacio reservado para: código numérico (35px) + logo/tipo registro (50px)
+    espacio_inferior = 85
+    espacio_disponible = TARGET_HEIGHT - y - espacio_inferior
+    
+    # Si el barcode es muy alto, redimensionarlo para que quepa
+    if barcode_img.height > espacio_disponible:
+        scale = espacio_disponible / barcode_img.height
+        new_w = int(barcode_img.width * scale)
+        new_h = int(barcode_img.height * scale)
+        barcode_img = barcode_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
     x = (TARGET_WIDTH - barcode_img.width) // 2
-    canvas_img.paste(barcode_img, (x, y + 5))
+    canvas_img.paste(barcode_img, (x, y))
+    y += barcode_img.height + 5
+    
+    # 6️⃣ Número del código debajo del barcode (centrado)
+    font_codigo = get_font(size=38, bold=True)
+    codigo_width = draw.textlength(codigo, font=font_codigo)
+    draw.text(((TARGET_WIDTH - codigo_width) / 2, y), codigo, fill="black", font=font_codigo)
 
-    # 6️⃣ Agregar logo
+    # 7️⃣ Agregar logo (esquina inferior izquierda)
     _add_logo(canvas_img, logo_path)
 
-    # agregar tipo de registro en la esquina inferior derecha (horizontal)
+    # Tipo de registro en la esquina inferior derecha
     if tipo_registro:
-        font_tipo = get_font(size=18, bold=True)
+        font_tipo = get_font(size=40, bold=True)
         text_w = draw.textlength(tipo_registro, font=font_tipo)
-        x_tipo = TARGET_WIDTH - text_w - 10  # 10px desde el borde derecho
-        y_tipo = TARGET_HEIGHT - font_tipo.size - 10  # 10px desde el borde inferior
+        x_tipo = TARGET_WIDTH - text_w - 20
+        y_tipo = TARGET_HEIGHT - font_tipo.size - 15
         draw.text((x_tipo, y_tipo), tipo_registro, fill="black", font=font_tipo)
 
     # 7️⃣ Guardar en memoria, NO en disco
@@ -210,10 +275,10 @@ def _generate_separator_image(office_name: str):
     draw.rectangle(
         [MARGIN, MARGIN, TARGET_WIDTH - MARGIN, TARGET_HEIGHT - MARGIN], 
         outline="black", 
-        width=10
+        width=20
     )
     
-    font_office = get_font(size=35, bold=True)
+    font_office = get_font(size=70, bold=True)
     
     # Wrap text if too long
     lines = wrap_text(draw, f"ÁREA:\n{office_name}", font_office, TARGET_WIDTH * 0.8)
@@ -269,7 +334,7 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
     y_start = page_height - PAGE_MARGIN_Y - label_height
     x, y = x_start, y_start
 
-    pdf.setStrokeColorRGB(0.6, 0.6, 0.6)
+    pdf.setStrokeGray(0.6)
     pdf.setLineWidth(0.8)
     pdf.setDash(3, 2)
 
@@ -343,7 +408,7 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
         # Nueva página
         if i % (cols * rows) == 0 and i < len(processed_items):
             pdf.showPage()
-            pdf.setStrokeColorRGB(0.6, 0.6, 0.6)
+            pdf.setStrokeGray(0.6)
             pdf.setLineWidth(0.8)
             pdf.setDash(3, 2)
             x, y = x_start, page_height - PAGE_MARGIN_Y - label_height
