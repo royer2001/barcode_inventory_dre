@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # load_excel_to_db("ANEXOS 04- MAQUINARIA - SOBRANTES TOTAL 2024 a.xlsx",
     #          sheet_name="SOBRNT.", header=0, tipo_registro="SOBRANTE")
 
-    load_excel_to_db("excel/INVENTARIO_UNIFICADO_20251217_180210.xlsx", sheet_name="Inventario Completo", header=0)
+    load_excel_to_db("excel/INVENTARIO_UNIFICADO_20251229_091703.xlsx", sheet_name="Inventario Completo", header=0)
 
     # 2️⃣ Ejecutar interfaz
     app = InventoryApp()

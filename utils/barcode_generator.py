@@ -29,14 +29,114 @@ MAX_HEIGHT_RATIO = 0.6
 LOGO_RATIO_W = 0.15
 LOGO_RATIO_H = 0.22
 
-# Dimensiones mínimas recomendadas para códigos de barras (mm)
-# Basado en estándares EAN-13/Code128: 37.29mm x 22.85mm (nominal)
-MIN_BARCODE_WIDTH_MM = 37.0
-MIN_BARCODE_HEIGHT_MM = 23.0
+# ================================================================
+# ESPECIFICACIONES DE CÓDIGOS DE BARRAS EAN-13/Code128
+# ================================================================
+# DIMENSIONES RECOMENDADAS:
+#   Tamaño Nominal (100%):  37.29 mm (ancho) x 25.91 mm (alto)
+#   Tamaño Mínimo (80%):    29.83 mm (ancho) x 20.73 mm (alto)
+#   Tamaño Máximo (200%):   75.58 mm (ancho) x 82.00 mm (alto)
+#   Mínimo Práctico:        30 mm x 20 mm (garantiza lectura)
+#
+# CONSIDERACIONES CLAVE:
+#   1. ZONA TRANQUILA (Márgenes): Espacio blanco a los lados del
+#      código para que el escáner lo detecte. Sin tinta ni texto.
+#   2. ESCALADO: Proporcional entre 80% y 200%. No alterar solo
+#      ancho o alto individualmente.
+#   3. CONTRASTE: Fondo blanco + barras negras (ideal para lectura)
+#   4. UBICACIÓN: Área plana y visible, sin curvas ni pliegues.
+#   5. LOGOS/TEXTOS: Fuera de la zona de barras y sus márgenes.
+# ================================================================
+MIN_BARCODE_WIDTH_MM = 37.0   # Ancho nominal ~37.29mm
+MIN_BARCODE_HEIGHT_MM = 26.0  # Alto nominal ~25.91mm
 # Convertir a píxeles a 600 DPI
-MIN_BARCODE_WIDTH_PX = int(MIN_BARCODE_WIDTH_MM * CM_TO_INCH * DPI / 10)
-MIN_BARCODE_HEIGHT_PX = int(MIN_BARCODE_HEIGHT_MM * CM_TO_INCH * DPI / 10)
-# -------------------------------------------------
+MIN_BARCODE_WIDTH_PX = int(MIN_BARCODE_WIDTH_MM / 10 * CM_TO_INCH * DPI)
+MIN_BARCODE_HEIGHT_PX = int(MIN_BARCODE_HEIGHT_MM / 10 * CM_TO_INCH * DPI)
+# ================================================================
+
+# Diccionario de claves de 4 letras para cada área/oficina
+OFFICE_KEYS = {
+    # Áreas de la DGA (Dirección General de Administración)
+    "ABAST-CHOFER": "ABCH",
+    "ALMACEN PATRIMONIO": "ALPA",
+    "ARCHIVO": "ARCH",
+    "AUDITORIO": "AUDI",
+    "CONSTANCIA DE PAGOS": "CPAG",
+    "CONSTANCIAS DE PAGOS": "CPAG",
+    "DESPACHO DIRECTORAL": "DESP",
+    "DGA-ABASTECIMIENTO": "DGAB",
+    "DGA-ALMACÉN": "DGAL",
+    "DGA-CONTABILIDAD": "DGAC",
+    "DGA-DIRECCIÓN": "DGAD",
+    "DGA-PATRIMONIO": "DGAP",
+    "DGA-SECRETARIA": "DGAS",
+    "DGA-TESORERIA": "DGAT",
+    
+    # Áreas de la DGI (Dirección General de Institucional)
+    "DGI-DIRECCIÓN": "DGID",
+    "DGI-ESTADÍSTICA": "DGIE",
+    "DGI-INFORMÁTICA": "DGII",
+    "DGI-INFRAESTRUCTURA": "DGIF",
+    "DGI-PLANIFICACIÓN": "DGIP",
+    "DGI-PLANIFINACIÓN": "DGIP",  # Variante con typo
+    "DGI-PRESUPUESTO": "DGPR",
+    "DGI-RACIONALIZACION": "DGIR",
+    "DGI-SECRETARIA": "DGIS",
+    
+    # Áreas de la DGP (Dirección General Pedagógica)
+    "DGP-DIRECCIÓN": "DGPD",
+    "DGP-ESPECIALISTA DE EDUCACIÓN FISICA": "DGEF",
+    "DGP-ESPECIALISTA DE EDUCACIÓN OFI. 25": "DG25",
+    "DGP-ESPECIALISTA DE EDUCACIÓN OFI. 26": "DG26",
+    "DGP-PROGRAMA 107": "P107",
+    "DGP-PROGRAMA 9002": "P902",
+    
+    # Otras áreas
+    "DIRECCIÓN": "DIRE",
+    "ESCALAFON": "ESCA",
+    "I.S.P MARCOS DURAN MARTEL": "ISPM",
+    "MESA PARTES": "MESP",
+    "OAJ": "OAJJ",
+    "OAJ-DIRECCION": "OAJD",
+    "OAJ-SECRETARIA": "OAJS",
+    "OCI-DIRECCIÓN": "OCID",
+    "ORGANO DE CONTROL INSTITUCIONAL": "OCII",
+    "PERSONAL DE VIGILANCIA": "VIGI",
+    "PROGRAMA - PREVAED": "PREV",
+    "PROGRAMA PPTCD - 0051": "P051",
+    "RECURSOS HUMANOS": "RRHH",
+    "RELACIONES PUBLICAS": "RRPP",
+    "RR.HH - BIENESTAR SOCIAL": "RHBS",
+    "RR.HH - PLANILLAS": "RHPL",
+    "RR.HH - SECRETARIA TECNICA": "RHST",
+    "SECRETARIA-GENERAL": "SECG",
+    "SERVICIOS GENERALES": "SERG",
+}
+
+
+def get_office_key(office_name: str) -> str:
+    """Obtiene la clave de 4 letras para una oficina dada."""
+    if not office_name:
+        return "XXXX"
+    
+    # Buscar coincidencia exacta primero
+    office_upper = office_name.strip().upper()
+    if office_upper in OFFICE_KEYS:
+        return OFFICE_KEYS[office_upper]
+    
+    # Buscar coincidencia parcial (por si el nombre tiene variaciones)
+    for key, code in OFFICE_KEYS.items():
+        if key in office_upper or office_upper in key:
+            return code
+    
+    # Si no se encuentra, generar una clave genérica basada en las primeras letras
+    words = office_name.strip().split()
+    if len(words) >= 2:
+        # Tomar las primeras 2 letras de las primeras 2 palabras
+        return (words[0][:2] + words[1][:2]).upper()[:4].ljust(4, 'X')
+    else:
+        # Tomar las primeras 4 letras
+        return office_name.strip().upper()[:4].ljust(4, 'X')
 
 
 def _create_canvas() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -152,7 +252,7 @@ def _add_logo(canvas: Image.Image, logo_path: str):
     canvas.paste(logo, (x, y))
 
 
-def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.png", detalle_bien: str = "", save_file: bool = False, tipo_registro: str = ""):
+def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.png", detalle_bien: str = "", save_file: bool = False, tipo_registro: str = "", oficina: str = ""):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # 1️⃣ Lienzo base
@@ -165,16 +265,41 @@ def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.
     font_title = get_font(size=42, bold=True)  # Denominación del bien
     font_detalle = get_font(size=34)  # Título inventario
     font_area = get_font(size=38)  # Área / Oficina
+    font_office_key = get_font(size=48, bold=True)  # Clave de oficina (GRANDE)
 
     # Margen izquierdo para alineación
     margin_left = 25
-    max_text_width = TARGET_WIDTH - margin_left - 25  # Ancho disponible para texto
+    
+    # 🔑 CLAVE DE OFICINA (esquina superior derecha)
+    office_key = get_office_key(oficina)
+    key_width = draw.textlength(office_key, font=font_office_key)
+    
+    # Dibujar un rectángulo de fondo para destacar la clave
+    key_padding = 8
+    key_x = TARGET_WIDTH - key_width - margin_left - key_padding
+    key_y = 8
+    
+    # Rectángulo con borde negro para la clave
+    rect_x1 = key_x - key_padding
+    rect_y1 = key_y - 4
+    rect_x2 = key_x + key_width + key_padding
+    rect_y2 = key_y + font_office_key.size + 4
+    draw.rectangle([rect_x1, rect_y1, rect_x2, rect_y2], outline="black", width=3)
+    
+    # Texto de la clave
+    draw.text((key_x, key_y), office_key, fill="black", font=font_office_key)
+    
+    # Ancho disponible para texto (dejando espacio para la clave)
+    max_text_width = rect_x1 - margin_left - 15
     
     # 4️⃣ Dibujar textos alineados a la izquierda
     y = 10
     
+    # Limitar denominación a 40 caracteres totales (37 + "...")
+    detalle_truncado = detalle_bien[:37] + "..." if len(detalle_bien) > 40 else detalle_bien
+    
     # Denominación del bien (compacta, hasta 2 líneas)
-    denominacion_lines = wrap_text(draw, detalle_bien, font_title, max_text_width)[:2]
+    denominacion_lines = wrap_text(draw, detalle_truncado, font_title, max_text_width)[:2]
     for line in denominacion_lines:
         draw.text((margin_left, y), line, fill="black", font=font_title)
         y += int(font_title.size * 1.1)
@@ -187,6 +312,7 @@ def generate_barcode(codigo: str, title: str = "", logo_path: str = "utils/logo.
     # ÁREA / OFICINA (visible y claro)
     draw.text((margin_left, y), "ÁREA / OFICINA: __________________________________", fill="black", font=font_area)
     y += int(font_area.size * 1.2)
+
 
     # 5️⃣ Pegar barcode centrado
     # Espacio reservado para: código numérico (35px) + logo/tipo registro (50px)
@@ -271,6 +397,9 @@ def get_font(size: int = 25, bold: bool = False) -> ImageFont.FreeTypeFont:
 def _generate_separator_image(office_name: str):
     img, draw = _create_canvas()
     
+    # Obtener la clave de 4 letras
+    office_key = get_office_key(office_name)
+    
     # Draw a thick border or filled background to distinguish
     draw.rectangle(
         [MARGIN, MARGIN, TARGET_WIDTH - MARGIN, TARGET_HEIGHT - MARGIN], 
@@ -279,13 +408,23 @@ def _generate_separator_image(office_name: str):
     )
     
     font_office = get_font(size=70, bold=True)
+    font_key = get_font(size=100, bold=True)
     
-    # Wrap text if too long
-    lines = wrap_text(draw, f"ÁREA:\n{office_name}", font_office, TARGET_WIDTH * 0.8)
+    # Dibujar la clave grande primero
+    key_width = draw.textlength(office_key, font=font_key)
+    key_x = (TARGET_WIDTH - key_width) / 2
+    key_y = TARGET_HEIGHT * 0.15
+    draw.text((key_x, key_y), office_key, fill="black", font=font_key)
     
-    # Calculate total height of text block
-    total_text_height = len(lines) * font_office.size * 1.2
-    start_y = (TARGET_HEIGHT - total_text_height) / 2
+    # Línea divisoria
+    line_y = key_y + font_key.size + 20
+    draw.line([MARGIN + 50, line_y, TARGET_WIDTH - MARGIN - 50, line_y], fill="black", width=3)
+    
+    # Wrap text if too long para el nombre del área
+    lines = wrap_text(draw, f"ÁREA: {office_name}", font_office, TARGET_WIDTH * 0.8)
+    
+    # Calculate starting y position (debajo de la línea)
+    start_y = line_y + 20
     
     y = start_y
     for line in lines:
@@ -338,6 +477,40 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
     pdf.setLineWidth(0.8)
     pdf.setDash(3, 2)
 
+    def draw_border_cut_lines():
+        """Dibuja las líneas de corte en los bordes de la página."""
+        # Configurar estilo de línea punteada
+        pdf.setStrokeGray(0.6)
+        pdf.setLineWidth(0.8)
+        pdf.setDash(3, 2)
+        
+        # Línea SUPERIOR (borde superior de la primera fila)
+        top_y = page_height - PAGE_MARGIN_Y
+        pdf.line(PAGE_MARGIN_X, top_y, page_width - PAGE_MARGIN_X, top_y)
+        
+        # Línea INFERIOR (borde inferior de la última fila)
+        bottom_y = PAGE_MARGIN_Y
+        pdf.line(PAGE_MARGIN_X, bottom_y, page_width - PAGE_MARGIN_X, bottom_y)
+        
+        # Línea IZQUIERDA (borde izquierdo de la primera columna)
+        pdf.line(PAGE_MARGIN_X, PAGE_MARGIN_Y, PAGE_MARGIN_X, page_height - PAGE_MARGIN_Y)
+        
+        # Línea DERECHA (borde derecho de la última columna)
+        pdf.line(page_width - PAGE_MARGIN_X, PAGE_MARGIN_Y, page_width - PAGE_MARGIN_X, page_height - PAGE_MARGIN_Y)
+        
+        # Líneas HORIZONTALES entre todas las filas
+        for row in range(1, rows):
+            line_y = page_height - PAGE_MARGIN_Y - (row * (label_height + GAP_Y)) + GAP_Y / 2
+            pdf.line(PAGE_MARGIN_X, line_y, page_width - PAGE_MARGIN_X, line_y)
+        
+        # Líneas VERTICALES entre todas las columnas
+        for col in range(1, cols):
+            line_x = PAGE_MARGIN_X + (col * (label_width + GAP_X)) - GAP_X / 2
+            pdf.line(line_x, PAGE_MARGIN_Y, line_x, page_height - PAGE_MARGIN_Y)
+
+    # Dibujar líneas de corte en la primera página
+    draw_border_cut_lines()
+
     # Pre-process records to insert separators
     processed_items = []
     last_office = None
@@ -373,26 +546,12 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
                 title="INVENTARIO DRE HUÁNUCO - 2025",
                 detalle_bien=item['detalle_bien'],
                 logo_path="utils/logo.png",
-                tipo_registro=item['tipo_registro']
+                tipo_registro=item['tipo_registro'],
+                oficina=item['oficina']
             )
 
         # Dibujar la etiqueta
         pdf.drawImage(img, x, y, width=label_width, height=label_height)
-
-        # --- LÍNEAS DE CORTE PUNTEADAS ---
-
-        # Línea VERTICAL derecha (entre columnas)
-        col_actual = (i - 1) % cols + 1
-        if col_actual < cols:  # No dibujar después de la última columna
-            line_x = x + label_width + GAP_X / 2
-            pdf.line(line_x, y, line_x, y + label_height)
-
-        # Línea HORIZONTAL inferior (entre filas)
-        row_actual = ((i - 1) // cols) % rows + 1
-        # No dibujar en última fila
-        if row_actual < rows and i + cols <= len(processed_items):
-            line_y = y - GAP_Y / 2
-            pdf.line(x, line_y, x + label_width, line_y)
 
         if progress_callback:
             progress_callback(i, len(processed_items))
@@ -408,9 +567,7 @@ def generate_barcodes_pdf(records, output_pdf="assets/generated_barcodes/", prog
         # Nueva página
         if i % (cols * rows) == 0 and i < len(processed_items):
             pdf.showPage()
-            pdf.setStrokeGray(0.6)
-            pdf.setLineWidth(0.8)
-            pdf.setDash(3, 2)
+            draw_border_cut_lines()
             x, y = x_start, page_height - PAGE_MARGIN_Y - label_height
 
     pdf.save()

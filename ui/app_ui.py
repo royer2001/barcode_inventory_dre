@@ -203,49 +203,68 @@ class MultiOfficeGeneratorView(ttk.Frame):
         ttk.Button(btn_frame, text="Seleccionar Todo", command=self.select_all).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Deseleccionar Todo", command=self.deselect_all).pack(side=tk.LEFT, padx=5)
         
+        # Frame contenedor para canvas y scrollbar
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
         # Canvas y Scrollbar para la lista
-        canvas = tk.Canvas(main_frame)
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-        self.scrollable_frame = ttk.Frame(canvas)
+        self.canvas = tk.Canvas(list_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
         
         self.scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
         
         # Guardar referencia a la ventana del canvas para ajustar ancho
-        self.canvas_window = canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas.configure(yscrollcommand=scrollbar.set)
         
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Ajustar ancho del frame interno al cambiar tamaño del canvas
         def on_canvas_configure(event):
-            canvas.itemconfig(self.canvas_window, width=event.width)
+            self.canvas.itemconfig(self.canvas_window, width=event.width)
         
-        canvas.bind("<Configure>", on_canvas_configure)
+        self.canvas.bind("<Configure>", on_canvas_configure)
 
-        # Scroll con rueda del mouse
+        # Función de scroll con rueda del mouse
         def _on_mousewheel(event):
             if event.num == 4:  # Linux scroll up
-                canvas.yview_scroll(-1, "units")
+                self.canvas.yview_scroll(-1, "units")
             elif event.num == 5:  # Linux scroll down
-                canvas.yview_scroll(1, "units")
+                self.canvas.yview_scroll(1, "units")
             else:  # Windows/Mac
-                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
-        # Vincular eventos de scroll a la ventana y al canvas
-        self.bind("<Button-4>", _on_mousewheel)
-        self.bind("<Button-5>", _on_mousewheel)
-        self.bind("<MouseWheel>", _on_mousewheel)
+        # Vincular eventos de scroll al canvas y al frame scrollable
+        self.canvas.bind("<Button-4>", _on_mousewheel)
+        self.canvas.bind("<Button-5>", _on_mousewheel)
+        self.canvas.bind("<MouseWheel>", _on_mousewheel)
+        self.scrollable_frame.bind("<Button-4>", _on_mousewheel)
+        self.scrollable_frame.bind("<Button-5>", _on_mousewheel)
+        self.scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        
+        # Vincular a todos los widgets hijos también
+        def bind_scroll_to_children(widget):
+            widget.bind("<Button-4>", _on_mousewheel)
+            widget.bind("<Button-5>", _on_mousewheel)
+            widget.bind("<MouseWheel>", _on_mousewheel)
+            for child in widget.winfo_children():
+                bind_scroll_to_children(child)
         
         # Checkboxes
         for office in self.all_offices:
             var = tk.BooleanVar()
             chk = ttk.Checkbutton(self.scrollable_frame, text=office, variable=var)
             chk.pack(anchor="w", padx=5, pady=2)
+            # Vincular scroll a cada checkbox
+            chk.bind("<Button-4>", _on_mousewheel)
+            chk.bind("<Button-5>", _on_mousewheel)
+            chk.bind("<MouseWheel>", _on_mousewheel)
             self.vars.append((office, var))
             
         # Botón Generar
@@ -477,10 +496,11 @@ class InventoryView(ttk.Frame):
         path = generate_barcode(
             codigo,
             title=f"INVENTARIO DRE HUÁNUCO - 2025",
-            detalle_bien=values[2],
+            detalle_bien=values[3],
             logo_path="utils/logo.png",
             save_file=True,
-            tipo_registro=values[6]
+            tipo_registro=values[8],
+            oficina=values[5]
         )
         messagebox.showinfo("Éxito", f"Código generado:\n{path}")
 
