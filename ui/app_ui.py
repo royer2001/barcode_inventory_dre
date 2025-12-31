@@ -188,7 +188,7 @@ class AutoCompleteEntry(tk.Frame):
 class MultiOfficeGeneratorView(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
-        self.all_offices = []
+        self.all_offices = []  # Lista de tuplas: (oficina, conteo)
         self.load_offices()
         self.vars = []
         
@@ -256,27 +256,32 @@ class MultiOfficeGeneratorView(ttk.Frame):
             for child in widget.winfo_children():
                 bind_scroll_to_children(child)
         
-        # Checkboxes
-        for office in self.all_offices:
+        # Checkboxes - mostrar nombre de oficina con conteo de bienes
+        for office, count in self.all_offices:
             var = tk.BooleanVar()
-            chk = ttk.Checkbutton(self.scrollable_frame, text=office, variable=var)
+            display_text = f"{office} ({count})"
+            chk = ttk.Checkbutton(self.scrollable_frame, text=display_text, variable=var)
             chk.pack(anchor="w", padx=5, pady=2)
             # Vincular scroll a cada checkbox
             chk.bind("<Button-4>", _on_mousewheel)
             chk.bind("<Button-5>", _on_mousewheel)
             chk.bind("<MouseWheel>", _on_mousewheel)
-            self.vars.append((office, var))
+            self.vars.append((office, var))  # Guardamos solo el nombre de oficina (sin conteo)
             
         # Botón Generar
         ttk.Button(self, text="Generar PDF", command=self.on_generate).pack(pady=10)
 
     def load_offices(self):
-        """Carga las oficinas únicas desde la BD."""
+        """Carga las oficinas únicas desde la BD junto con el conteo de bienes."""
         conn = create_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT DISTINCT oficina FROM bienes WHERE oficina IS NOT NULL AND oficina != '' ORDER BY oficina ASC")
-        self.all_offices = [row[0] for row in cursor.fetchall()]
+            """SELECT oficina, COUNT(*) as cantidad 
+               FROM bienes 
+               WHERE oficina IS NOT NULL AND oficina != '' 
+               GROUP BY oficina 
+               ORDER BY oficina ASC""")
+        self.all_offices = [(row[0], row[1]) for row in cursor.fetchall()]
         conn.close()
         
     def select_all(self):
